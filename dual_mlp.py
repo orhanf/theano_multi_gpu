@@ -7,15 +7,15 @@ import sys
 import time
 from multiprocessing import Process, Queue
 
-import zmq
+#import zmq
 import numpy as np
-import pycuda.driver as drv
-import pycuda.gpuarray as gpuarray
+#import pycuda.driver as drv
+#import pycuda.gpuarray as gpuarray
 
 
 def fun_mlp(shared_args, private_args, this_queue, that_queue):
     '''
-    shared_args 
+    shared_args
     contains neural network parameters
 
     private_args
@@ -34,33 +34,35 @@ def fun_mlp(shared_args, private_args, this_queue, that_queue):
 
     ####
     # pycuda and zmq environment
+
+    # import theano related
+    # We need global imports and so we make them as such
+    import theano.sandbox.cuda
+    theano.sandbox.cuda.use(private_args['gpu'])
+    import theano
+    import theano.tensor as T
+    import theano.misc.pycuda_utils
+
+    ####
+    # pycuda and zmq environment
+    import zmq
+    import pycuda.driver as drv
+    import pycuda.gpuarray as gpuarray
+
     drv.init()
-    dev = drv.Device(private_args['ind_gpu'])
-    ctx = dev.make_context()
+    # Attach the existing context (already initialized by theano import statement)
+    ctx = drv.Context.attach()
     sock = zmq.Context().socket(zmq.PAIR)
 
     if private_args['flag_client']:
         sock.connect('tcp://localhost:5000')
     else:
         sock.bind('tcp://*:5000')
-    ####
 
     ####
-    # import theano related
-    import theano.sandbox.cuda
-    theano.sandbox.cuda.use(private_args['gpu'])
-
-    import theano
-    import theano.tensor as T
 
     from logistic_sgd import load_data
     from mlp import MLP
-
-    import theano.misc.pycuda_init
-    import theano.misc.pycuda_utils
-
-    ####
-
 
     datasets = load_data(dataset)
 
@@ -114,10 +116,10 @@ def fun_mlp(shared_args, private_args, this_queue, that_queue):
     ####
     # setting pycuda and
     # pass handles, only done once
-    
+
     param_ga_list = []
     # a list of pycuda gpuarrays which point to value of theano shared variable on this gpu
-    
+
     param_other_list = []
     # a list of theano shared variables that are used to store values of theano shared variable from the other gpu
 
@@ -132,7 +134,7 @@ def fun_mlp(shared_args, private_args, this_queue, that_queue):
 
     dtype_list = []
     # a list containing dtypes of variables in param_ga_list
-    
+
     average_fun_list = []
     # a list containing theano functions for averaging parameters
 
@@ -191,7 +193,7 @@ def fun_mlp(shared_args, private_args, this_queue, that_queue):
 
             if minibatch_index % 2 == private_args['mod']:
                 train_model(minibatch_index)
-                
+
                 this_queue.put('')
                 that_queue.get()
 
@@ -204,12 +206,12 @@ def fun_mlp(shared_args, private_args, this_queue, that_queue):
                                     param_ga_remote.ptr,
                                     param_ga_remote.dtype.itemsize *
                                     param_ga_remote.size,
-                                    ctx, ctx)                
-                
+                                    ctx, ctx)
+
                 ctx.synchronize()
                 this_queue.put('')
                 that_queue.get()
-                    
+
                 for average_fun in average_fun_list:
                     average_fun()
 
@@ -243,7 +245,8 @@ if __name__ == '__main__':
     shared_args = {}
     shared_args['learning_rate'] = 0.13
     shared_args['n_epochs'] = 10
-    shared_args['dataset'] = '/mnt/data/datasets/mnist/mnist.pkl.gz'
+    shared_args['dataset'] = '/home/ofirat/git/theano_multi_gpu/mnist.pkl.gz'
+
     shared_args['batch_size'] = 5000
     shared_args['L1_reg'] = 0.00
     shared_args['L2_reg'] = 0.0001
